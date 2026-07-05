@@ -12,12 +12,17 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from app.models import Job, JobCreate
 from app.store import JobStore, get_store
 from app.tasks import run_job
+from app.metrics import record_submitted
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(
     title="JobFlow API",
     version="1.0.0",
     description="Async job orchestration API (FastAPI + Celery + Redis).",
 )
+
+# Exposes GET /metrics (request rate, latency, status) for Prometheus.
+Instrumentator().instrument(app).expose(app, tags=["system"])
 
 
 @app.get("/health", tags=["system"])
@@ -40,6 +45,7 @@ def submit_job(body: JobCreate, store: JobStore = Depends(get_store)) -> dict:
         "finished_at": None,
     }
     store.create(job)
+    record_submitted(body.task_type)
     run_job.delay(job_id, body.task_type, body.params)
     # Return the freshest view (in eager mode the job may already be done).
     return store.get(job_id) or job

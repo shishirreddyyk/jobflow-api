@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from app.celery_app import celery_app
+from app.metrics import track_job
 from app.store import get_store
 
 
@@ -12,7 +13,8 @@ def run_job(self, job_id: str, task_type: str, params: dict) -> Any:
     store = get_store()
     store.update(job_id, status="running", started_at=time.time())
     try:
-        result = _execute(task_type, params)
+        with track_job(task_type):
+            result = _execute(task_type, params)
     except Exception as exc:  # noqa: BLE001 - record failure, then re-raise
         store.update(job_id, status="failed", error=str(exc), finished_at=time.time())
         raise

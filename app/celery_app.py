@@ -22,7 +22,21 @@ celery_app.conf.update(
     accept_content=["json"],
     task_always_eager=os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true",
     task_eager_propagates=True,
+    worker_send_task_events=True,
+    task_send_sent_event=True,
 )
 
 # Register tasks defined in app/tasks.py with the worker.
 celery_app.autodiscover_tasks(["app"])
+
+
+# Expose worker-process metrics for Prometheus (skipped in eager/test mode).
+from celery.signals import worker_ready  # noqa: E402
+
+
+@worker_ready.connect
+def _start_metrics_server(**_kwargs):
+    if not celery_app.conf.task_always_eager:
+        from app.metrics import start_worker_metrics_server
+
+        start_worker_metrics_server()

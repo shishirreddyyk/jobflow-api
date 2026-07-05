@@ -15,8 +15,36 @@ services:
 
   worker:
     build: .
-    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=4
+    # threads pool so job metrics share one process and are scrapeable on :9200
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --pool=threads --concurrency=4 -E
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - METRICS_PORT=9200
+    ports:
+      - "9200:9200"
     depends_on:
       - redis
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - api
+      - worker
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus

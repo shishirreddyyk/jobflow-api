@@ -97,3 +97,44 @@ The image is a single Dockerfile, so the API and worker deploy as separate
 containers/pods sharing a managed Redis (e.g. AWS ElastiCache). On Kubernetes,
 run the API and worker as two Deployments and scale the worker independently of
 the API based on queue depth.
+
+## Observability (Prometheus + Grafana)
+
+The API and worker export Prometheus metrics, and `docker compose up` brings up
+a Prometheus + Grafana stack with a pre-provisioned dashboard.
+
+**Metrics exported**
+
+- API (`GET /metrics`, via prometheus-fastapi-instrumentator): `http_requests_total`,
+  `http_request_duration_seconds` (request rate, latency, status).
+- Jobs (`app/metrics.py`, recorded in the worker and scraped on `:9200`):
+  - `jobflow_jobs_submitted_total{task_type}`
+  - `jobflow_jobs_finished_total{task_type,status}` (status = completed | failed)
+  - `jobflow_job_duration_seconds{task_type}` (histogram)
+  - `jobflow_jobs_in_progress` (gauge)
+
+The worker runs with a threads pool so job metrics live in one process and are
+scrapeable; `worker_ready` starts the metrics server (skipped in eager/test mode).
+
+**Run it**
+
+```
+docker compose up --build
+```
+
+- API: http://localhost:8000  (metrics at `/metrics`)
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000  (dashboard "JobFlow - API & Jobs", anonymous view enabled)
+
+Generate some load to see the panels move:
+
+```
+pip install locust
+locust -f loadtest/locustfile.py --host http://localhost:8000
+```
+
+**Dashboard panels:** API request rate, API p95 latency, job throughput by status,
+job duration p95 by task type, jobs in progress, submitted and failed totals.
+
+The job metrics are covered by tests (`tests/test_metrics.py`) that run in eager
+mode in CI, so `/metrics` and the counters are verified on every push.
